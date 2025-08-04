@@ -116,7 +116,7 @@ To set up the FPB:
 2. Set up the comparator. Basically you set the address that you want to watch,
    then set the top two bits (the `REPLACE` field) to `0` to indicate a remap,
    and set lowest bit `ENABLE` to 1.
-3. Enable the FPB: `or` it with the value `3`, for `KEY` and `ENABLE`, and
+3. Enable the FPB: `or` `FP_CTRL` with the value `3`, for `KEY` and `ENABLE`, and
    everything is ready.
 
 Afterwards, enable the watchdog and wait for it to time out, and this should
