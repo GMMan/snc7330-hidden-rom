@@ -162,9 +162,6 @@ this chip's boot code decryption without having the full bootrom.
 
 ## Usage
 
-Create a `obj` directory if it's not there, otherwise you may get complaints
-from the build process.
-
 Run `make`. Provide your ARM toolchain's `bin` directory path using the `BINPATH`
 variable if necessary when running `make`. The resulting `firmware.bin` can be
 flashed to your target.
