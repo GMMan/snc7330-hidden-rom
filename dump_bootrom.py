@@ -5,11 +5,16 @@ from time import sleep
 from serial import Serial
 from xmodem import XMODEM
 
+
+WAIT_TIME = 0.005  # Console is slow, requires wait to process command before receiving next
+
+
 try:
     port = Serial(sys.argv[1], 921600, timeout=5)
 except IndexError:
     print(f'Usage: {sys.argv[0]} <port>')
     sys.exit(1)
+
 
 def interrupt_boot():
     interrupt_pattern = b'\xab\x5d\xeb\xef'
@@ -25,11 +30,12 @@ def interrupt_boot():
         if port.read(len(interrupt_pattern)) == interrupt_pattern:
             port.timeout = orig_timeout
             return (True, attempts_remaining == attempts_threshold)
-            
+
         attempts_remaining -= 1
-        
+
     port.timeout = orig_timeout
     return (False, False)
+
 
 print('Interrupting boot...')
 if not interrupt_boot()[0]:
@@ -37,7 +43,6 @@ if not interrupt_boot()[0]:
     print('Failed to interrupt boot, please reset and try again.')
     sys.exit(2)
 
-WAIT_TIME = 0.005  # Console is slow, requires wait to process command before receiving next
 
 print('Boot interrupt successful, obtaining console...')
 port.write(b'\r')
@@ -46,6 +51,7 @@ if not port.read_until(b'SONiX UART Console:\r\n\0'):
     port.close()
     print('Failed to obtain console, please reset and try again.')
     sys.exit(2)
+
 
 print('Running commands...')
 port.write(b'w 20000180 bf000000\r')  # Set up patch for skipping hide register write
@@ -63,6 +69,7 @@ sleep(WAIT_TIME)
 port.write(b'w 40008000 5afa0001\r')  # Enable WDT0
 sleep(WAIT_TIME)
 
+
 # Console is still alive and echoing for a bit before WDT reset, so spam
 # interrupt, then stop if it doesn't immediately succeed, because console will
 # be unresponsive while resetting
@@ -72,9 +79,10 @@ while True:
         port.close()
         print('Failed to interrupt boot after WDT reset, please reset and try again.')
         sys.exit(2)
-    
+
     if not int_first_time:
         break
+
 
 print('Boot interrupted after WDT, obtaining console...')
 port.write(b'\r')
@@ -84,6 +92,7 @@ if not port.read_until(b'SONiX UART Console:\r\n\0'):
     print('Failed to obtain console, please reset and try again.')
     sys.exit(2)
 
+
 def getc(size, timeout=1):
     return port.read(size) or None
 
@@ -92,6 +101,7 @@ def putc(data, timeout=1):
 
 xm = XMODEM(getc, putc)
 
+
 with open('snc7330_core0_rom.bin', 'wb') as fd:
     port.write(b'xr 08000000 10000\r')
     sleep(WAIT_TIME)
@@ -99,5 +109,6 @@ with open('snc7330_core0_rom.bin', 'wb') as fd:
     print('Exploit OK, receiving ROM...')
     xm.recv(fd, crc_mode=0)
     print('Done')
+
 
 port.close()
