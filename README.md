@@ -160,6 +160,8 @@ for decryption, and taken together with the boot code decryption algorithm in
 the previous gen SNC7320 (that was not hidden), allowed me to reverse engineer
 this chip's boot code decryption without having the full bootrom.
 
+[Check out dumping the hidden ROM with just UART.](#exploit-using-built-in-uart-console)
+
 ## Usage
 
 Run `make`. Provide your ARM toolchain's `bin` directory path using the `BINPATH`
