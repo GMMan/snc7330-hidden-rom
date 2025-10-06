@@ -1,7 +1,7 @@
 Extracting Hidden Bootrom from Sonix SNC7330
 ============================================
 
-## Article
+## Exploit using user code and SWD
 
 While exploring the Tamagotchi Paradise, I dumped the bootrom of its microcontroller,
 a Sonix SNC73410, but noticed something weird. When I loaded the image up in 
@@ -194,3 +194,141 @@ chips, e.g https://www.sonix.com.tw/article-en-5180-42810
 
 Startup code and linker script stolen from https://github.com/pulkomandy/stm32f3,
 with a few adjustments added for SNC7330 and including debugging sections.
+
+---
+
+## Exploit using built-in UART console
+
+A while back I was looking at the microcontroller's built-in UART console. This
+console activates either when you send the boot interrupt sequence, or if there
+is no valid firmware and you send the Escape character over UART. Once the
+console is activated, you can send it some commands. The following is printed
+when you use the `?` command:
+
+```
+Console Mode:
+ 'R' - Reset CPU.
+ 'w' <addr> <value> - write memory
+ 'r' <addr> <length> - read memory
+ 'e' <type> <address> <number> - erase flash
+ 'xw' <addr> - write by xmodem
+ 'xr' <addr> <size>- read by xmodem
+ 'sw' <data> - write flash status reg.
+ 'sr' <address> - read flash status reg.
+ 'id' - Read Flash ID
+ 'j' <address> - jump and execute.
+ 'q' - Back to ISP scan mode
+```
+
+These commands are sufficient for reading and writing registers and memory, so
+I thought I should try to implement the exploit using just the UART console.
+
+### The setup
+
+As before, the goal is to `NOP` out operations that sets the ROM hiding register
+bit. For the UART flow, the code that sets the register is in a different
+branch.
+
+```
+08005410 4f f0 8a 45     mov.w      r5,#0x45000000
+08005414 28 68           ldr        r0,[r5,#0x0]
+08005416 40 f0 08 00     orr        r0,r0,#0x8
+0800541a 28 60           str        r0,[r5,#0x0]
+```
+
+The instructions are basically the same as last time, but the address is less
+ideal. The FPB requires patches to be 4-byte aligned, which means for the most
+part it'll be in the middle of instructions. To deal with this, we can `NOP` out
+the `str` instruction, and since the latter half of the `orr` instruction
+specifies the value to apply, we can set that to anything since we're not going
+to use this value.
+
+I tried this out, but there was an issue: the WDT reset was not triggering. I
+found this to be caused by a bit of code that runs every time before UART
+commands are read and parsed, which turns the WDT off. This runs before the WDT
+has had time to trigger, so the reset never happens.
+
+```
+08000ee8 48 48           ldr        r0,[->SN_WDT0]                                   = 40008000
+08000eea 82 b0           sub        sp,#0x8
+08000eec 46 4a           ldr        r2,[DAT_08001008]                                = 5AFA55AAh
+08000eee 4f f0 00 08     mov.w      r8,#0x0
+08000ef2 c2 60           str        r2,[r0,#0xc]=>SN_WDT0.FEED
+08000ef4 46 49           ldr        r1=>SN_WDT1,[->SN_WDT1]                          = 40009000
+08000ef6 ca 60           str        r2,[r1,#0xc]=>SN_WDT1.FEED
+08000ef8 46 4a           ldr        r2,[DAT_08001014]                                = 5AFA0000h
+08000efa 02 60           str        r2,[r0,#0x0]=>SN_WDT0.CFG
+08000efc 0a 60           str        r2,[r1,#0x0]=>SN_WDT1.CFG
+```
+
+To get around this, another patch is needed, and the most straightforward is to
+skip everything between `0x08000ef2` and `0x08000efc` inclusive. For this,
+replace the instruction at `0x08000ef2` with a `b 0x08000efe`. Once again, the
+instruction is not on a 4-byte boundary, so a bit of the previous instruction
+has to be included (it can't be a dummy this time because the register and its
+value is used).
+
+### Running the commands
+
+For connecting to the microcontroller, hook up UART to the pins dedicated to
+`UART0`. Auto baud rate is supported, so you can use anything from 115200 to
+921600 baud. The other parameters are `8-N-1` and no flow control as one would
+expect.
+
+Because I'm running this on a device that has valid firmware, and I don't fancy
+having to wipe then later rewrite the data in flash, I'm using the boot interrupt
+sequence. It's simply sending the bytes `ab 5d eb ef` over `UART0`. However, due
+to some implementation mistake in the bootrom, you must send this sequence before
+it has started reading a boot device with valid firmware. This means it's best
+to spam the sequence from before the microcontroller is released from reset.
+Once the sequence is recognized, the UART console is enabled and you will see
+your input echoed, at which point you can stop sending the sequence. After you
+start seeing an echo, just hit Enter and you'll get a clear buffer where you
+can issue commands.
+
+Note: the newline character used with this console is `CR`. The device sends
+back `CRLF` for its newlines. They stop on `CR` for ease of implementing the
+command parser, but it makes it awkward for systems that send only `LF`, such as
+Linux. Make sure your terminal sends `CRLF` for line endings.
+
+Once in the console, issue the following commands:
+
+```
+w 20000180 bf000000
+w 20000184 e0040800
+w e0002004 180
+w e0002008 8005419
+w e000200c 8000ef1
+w e0002000 263
+```
+
+1. Write patch for skipping setting the hide bit to remap table
+2. Write patch for skipping WDT disable to remap table
+3. Set remap table address
+4. Set comparator 0 for `0x08005418`
+5. Set comparator 1 for `0x08000ef0`
+6. Enable the FPB unit
+
+Note that you should enter each command separately, because the command buffer
+index is reset only after the command has executed, so if your input is faster
+than execution, you'll lose part or all of the command.
+
+Once you've done the setup, enter the command `w 40008000 5afa0001` to enable
+the WDT. Immediately afterwards, spam the boot interrupt sequence if you have
+valid firmware to prevent the device from booting the firmware.
+
+After this, if you are able to access the console, then the exploit should be
+successful and you should be able to read out the hidden ROM. You can dump the
+ROM to console by issuing `r 08000000 10000`, or if you have an XMODEM client,
+you can send it using the XMODEM protocol by issuing `xr 08000000 10000`.
+
+If you are running this manually, [Realterm](https://realterm.sourceforge.io/)
+is recommended for its capability to send hex bytes and repeat with adjustable
+delay. For XMODEM capability, you can use [Tera Term](https://teratermproject.github.io/index-en.html).
+
+Alternatively, use the script [dump_bootrom.py](dump_bootrom.py) to automate the
+process. Please install the `pyserial` and `xmodem` packages, then run the
+script with the serial port name as the command-line argument. Recommendation
+is to hold the microcontroller in reset, start the script, then release from
+reset. The default baud rate is 921600 for fastest transfer rate, but if you
+need a lower speed, baud rates down to 115200 will work.
