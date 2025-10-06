@@ -12,7 +12,7 @@ WAIT_TIME = 0.005  # Console is slow, requires wait to process command before re
 try:
     port = Serial(sys.argv[1], 921600, timeout=5)
 except IndexError:
-    print(f'Usage: {sys.argv[0]} <port>')
+    print(f'Usage: {sys.argv[0]} <port>', file=sys.stderr)
     sys.exit(1)
 
 
@@ -40,7 +40,7 @@ def interrupt_boot():
 print('Interrupting boot...')
 if not interrupt_boot()[0]:
     port.close()
-    print('Failed to interrupt boot, please reset and try again.')
+    print('Failed to interrupt boot, please reset and try again.', file=sys.stderr)
     sys.exit(2)
 
 
@@ -49,7 +49,7 @@ port.write(b'\r')
 sleep(WAIT_TIME)
 if not port.read_until(b'SONiX UART Console:\r\n\0'):
     port.close()
-    print('Failed to obtain console, please reset and try again.')
+    print('Failed to obtain console, please reset and try again.', file=sys.stderr)
     sys.exit(2)
 
 
@@ -77,7 +77,7 @@ while True:
     int_success, int_first_time = interrupt_boot()
     if not int_success:
         port.close()
-        print('Failed to interrupt boot after WDT reset, please reset and try again.')
+        print('Failed to interrupt boot after WDT reset, please reset and try again.', file=sys.stderr)
         sys.exit(2)
 
     if not int_first_time:
@@ -89,7 +89,7 @@ port.write(b'\r')
 sleep(WAIT_TIME)
 if not port.read_until(b'SONiX UART Console:\r\n\0'):
     port.close()
-    print('Failed to obtain console, please reset and try again.')
+    print('Failed to obtain console, please reset and try again.', file=sys.stderr)
     sys.exit(2)
 
 
@@ -108,7 +108,7 @@ with open('snc7330_core0_rom.bin', 'wb') as fd:
     port.read_until(b'XModem waiting for transmission...\r\n\0')
     print('Exploit OK, receiving ROM...')
     xm.recv(fd, crc_mode=0)
-    print('Done')
 
 
+print('Done')
 port.close()
