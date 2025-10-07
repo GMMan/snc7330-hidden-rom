@@ -37,6 +37,11 @@ def interrupt_boot():
     return (False, False)
 
 
+def send_cmd(cmd=b''):
+    port.write(cmd + b'\r')
+    sleep(WAIT_TIME)
+
+
 print('Interrupting boot...')
 if not interrupt_boot()[0]:
     port.close()
@@ -45,8 +50,7 @@ if not interrupt_boot()[0]:
 
 
 print('Boot interrupt successful, obtaining console...')
-port.write(b'\r')
-sleep(WAIT_TIME)
+send_cmd()
 if not port.read_until(b'SONiX UART Console:\r\n\0'):
     port.close()
     print('Failed to obtain console, please reset and try again.', file=sys.stderr)
@@ -54,20 +58,13 @@ if not port.read_until(b'SONiX UART Console:\r\n\0'):
 
 
 print('Running commands...')
-port.write(b'w 20000180 bf000000\r')  # Set up patch for skipping hide register write
-sleep(WAIT_TIME)
-port.write(b'w 20000184 e0040800\r')  # Set up patch for not turning off WDT
-sleep(WAIT_TIME)
-port.write(b'w e0002004 180\r')       # Set remap table address
-sleep(WAIT_TIME)
-port.write(b'w e0002008 8005419\r')   # Set comparator 0 for 0x08005418
-sleep(WAIT_TIME)
-port.write(b'w e000200c 8000ef1\r')   # Set comparator 1 for 0x08000ef0
-sleep(WAIT_TIME)
-port.write(b'w e0002000 263\r')       # Enable FPB
-sleep(WAIT_TIME)
-port.write(b'w 40008000 5afa0001\r')  # Enable WDT0
-sleep(WAIT_TIME)
+send_cmd(b'w 20000180 bf000000')  # Set up patch for skipping hide register write
+send_cmd(b'w 20000184 e0040800')  # Set up patch for not turning off WDT
+send_cmd(b'w e0002004 180')       # Set remap table address
+send_cmd(b'w e0002008 8005419')   # Set comparator 0 for 0x08005418
+send_cmd(b'w e000200c 8000ef1')   # Set comparator 1 for 0x08000ef0
+send_cmd(b'w e0002000 263')       # Enable FPB
+send_cmd(b'w 40008000 5afa0001')  # Enable WDT0
 
 
 # Console is still alive and echoing for a bit before WDT reset, so spam
@@ -85,8 +82,7 @@ while True:
 
 
 print('Boot interrupted after WDT, obtaining console...')
-port.write(b'\r')
-sleep(WAIT_TIME)
+send_cmd()
 if not port.read_until(b'SONiX UART Console:\r\n\0'):
     port.close()
     print('Failed to obtain console, please reset and try again.', file=sys.stderr)
@@ -103,8 +99,7 @@ xm = XMODEM(getc, putc)
 
 
 with open('snc7330_core0_rom.bin', 'wb') as fd:
-    port.write(b'xr 08000000 10000\r')
-    sleep(WAIT_TIME)
+    send_cmd(b'xr 08000000 10000')
     port.read_until(b'XModem waiting for transmission...\r\n\0')
     print('Exploit OK, receiving ROM...')
     xm.recv(fd, crc_mode=0)
